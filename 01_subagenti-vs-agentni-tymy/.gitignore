@@ -1,0 +1,14 @@
+# Everything a run produces stays local.
+config.env
+node_modules/
+results/
+results-interactive/
+workspaces/
+workspaces-interactive/
+upstream/
+baseline/
+archive/
+test-results/
+playwright-artifacts/
+*.log
+*.status

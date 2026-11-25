@@ -1,0 +1,4 @@
+config.env
+workspaces/
+*.log
+workspaces-interactive/

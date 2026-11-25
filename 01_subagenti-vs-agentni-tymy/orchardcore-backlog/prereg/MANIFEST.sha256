@@ -1,0 +1,6 @@
+f02441d4b775c0d8aebe34fe55dda017879c9f2040ad1d5014c52c0cece58449 *ground-truth.md
+74788a15ee359a56db112bd64e7a3aaa526c31b8c55c79cb310b5c65f2c32db3 *rubric.md
+340b878a9b7f0888590b7c9a3df6a4b8674159b7a52b67a4ce66f3943f532c4f *acceptance-scenarios.md
+1783a6421bb58914463974e0eb51d36497ef13d53ac6e98fdf430f7f0f1c482c *../prompts/task.md
+6a2f7c1ca8059e457eefe0c29b0c743a10c792d14a94f3216dcc3ca24ccb160b *../prompts/issues.md
+# locked 2026-11-16T21:47:48Z, before any V3 run; base commit c5583e57dc675b9581231bbb6c4e8bd1ed91c845

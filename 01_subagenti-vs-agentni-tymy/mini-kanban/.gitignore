@@ -1,0 +1,8 @@
+config.env
+workspaces/
+results/
+node_modules/
+hidden-tests/*.json
+!hidden-tests/package.json
+!hidden-tests/package-lock.json
+hidden-tests/test-results/

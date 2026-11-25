@@ -1,0 +1,279 @@
+diff --git a/src/OrchardCore.Modules/OrchardCore.ContentLocalization/Controllers/ContentCulturePickerController.cs b/src/OrchardCore.Modules/OrchardCore.ContentLocalization/Controllers/ContentCulturePickerController.cs
+index 466e8967d..950e650a2 100644
+--- a/src/OrchardCore.Modules/OrchardCore.ContentLocalization/Controllers/ContentCulturePickerController.cs
++++ b/src/OrchardCore.Modules/OrchardCore.ContentLocalization/Controllers/ContentCulturePickerController.cs
+@@ -41,8 +41,12 @@ public sealed class ContentCulturePickerController : Controller
+ 
+         var supportedCultures = await _locationService.GetSupportedCulturesAsync();
+ 
+-        if (supportedCultures.Any(t => t == targetCulture))
++        // Culture codes are case-insensitive: use the spelling of the supported culture from here on.
++        var supportedCulture = supportedCultures.FirstOrDefault(t => string.Equals(t, targetCulture, StringComparison.OrdinalIgnoreCase));
++
++        if (supportedCulture != null)
+         {
++            targetCulture = supportedCulture;
+             var settings = await _siteService.GetSettingsAsync<ContentCulturePickerSettings>();
+             if (settings.SetCookie)
+             {
+diff --git a/src/OrchardCore.Modules/OrchardCore.ContentLocalization/GraphQL/CultureIndexPropertyValueNormalizer.cs b/src/OrchardCore.Modules/OrchardCore.ContentLocalization/GraphQL/CultureIndexPropertyValueNormalizer.cs
+new file mode 100644
+index 000000000..2a2275c04
+--- /dev/null
++++ b/src/OrchardCore.Modules/OrchardCore.ContentLocalization/GraphQL/CultureIndexPropertyValueNormalizer.cs
+@@ -0,0 +1,19 @@
++using OrchardCore.ContentManagement.GraphQL.Queries;
++
++namespace OrchardCore.ContentLocalization.GraphQL;
++
++/// <summary>
++/// Culture codes are stored lower case in <see cref="Records.LocalizedContentItemIndex"/>, so the values
++/// of a GraphQL filter on the culture are lower-cased too. This keeps the filter case-insensitive on
++/// every database, whatever its collation.
++/// </summary>
++public sealed class CultureIndexPropertyValueNormalizer : IIndexPropertyValueNormalizer
++{
++    public string IndexAlias => "localizationPart";
++
++    public bool CanNormalize(string propertyName)
++        => string.Equals(propertyName, nameof(Records.LocalizedContentItemIndex.Culture), StringComparison.OrdinalIgnoreCase);
++
++    public object Normalize(object value)
++        => value is string culture ? culture.ToLowerInvariant() : value;
++}
+diff --git a/src/OrchardCore.Modules/OrchardCore.ContentLocalization/GraphQL/Startup.cs b/src/OrchardCore.Modules/OrchardCore.ContentLocalization/GraphQL/Startup.cs
+index 35dd01bf2..afabdf6b3 100644
+--- a/src/OrchardCore.Modules/OrchardCore.ContentLocalization/GraphQL/Startup.cs
++++ b/src/OrchardCore.Modules/OrchardCore.ContentLocalization/GraphQL/Startup.cs
+@@ -17,5 +17,6 @@ public sealed class Startup : StartupBase
+         services.AddObjectGraphType<LocalizationPart, LocalizationQueryObjectType>();
+         services.AddTransient<IIndexAliasProvider, LocalizationPartIndexAliasProvider>();
+         services.AddWhereInputIndexPropertyProvider<LocalizedContentItemIndex>();
++        services.AddSingleton<IIndexPropertyValueNormalizer, CultureIndexPropertyValueNormalizer>();
+     }
+ }
+diff --git a/src/OrchardCore.Modules/OrchardCore.ContentLocalization/Migrations.cs b/src/OrchardCore.Modules/OrchardCore.ContentLocalization/Migrations.cs
+index 807d317ed..7c9cf857e 100644
+--- a/src/OrchardCore.Modules/OrchardCore.ContentLocalization/Migrations.cs
++++ b/src/OrchardCore.Modules/OrchardCore.ContentLocalization/Migrations.cs
+@@ -3,6 +3,7 @@ using OrchardCore.ContentLocalization.Models;
+ using OrchardCore.ContentManagement;
+ using OrchardCore.ContentManagement.Metadata;
+ using OrchardCore.ContentManagement.Metadata.Settings;
++using OrchardCore.Data;
+ using OrchardCore.Data.Migration;
+ using OrchardCore.Environment.Shell.Scope;
+ using YesSql;
+@@ -44,7 +45,7 @@ public sealed class Migrations : DataMigration
+         );
+ 
+         // Shortcut other migration steps on new content definition schemas.
+-        return 4;
++        return 5;
+     }
+ 
+     // This code can be removed in a later version.
+@@ -94,4 +95,30 @@ public sealed class Migrations : DataMigration
+ 
+         return 4;
+     }
++
++    // Culture codes are stored lower case (see LocalizedContentItemIndexProvider); records indexed
++    // before that are converted so that case-sensitive databases find them.
++    public static int UpdateFrom4()
++    {
++        ShellScope.AddDeferredTask(async scope =>
++        {
++            var store = scope.ServiceProvider.GetRequiredService<IStore>();
++            var dbConnectionAccessor = scope.ServiceProvider.GetRequiredService<IDbConnectionAccessor>();
++            var configuration = store.Configuration;
++            var dialect = configuration.SqlDialect;
++            var table = dialect.QuoteForTableName(configuration.TablePrefix + nameof(LocalizedContentItemIndex), configuration.Schema);
++            var culture = dialect.QuoteForColumnName(nameof(LocalizedContentItemIndex.Culture));
++
++            await using var connection = dbConnectionAccessor.CreateConnection();
++            await connection.OpenAsync();
++            await using var transaction = await connection.BeginTransactionAsync(configuration.IsolationLevel);
++            await using var command = connection.CreateCommand();
++            command.Transaction = transaction;
++            command.CommandText = $"UPDATE {table} SET {culture} = LOWER({culture}) WHERE {culture} IS NOT NULL";
++            await command.ExecuteNonQueryAsync();
++            await transaction.CommitAsync();
++        });
++
++        return 5;
++    }
+ }
+diff --git a/src/OrchardCore/OrchardCore.ContentManagement.GraphQL/Queries/ContentItemsFieldType.cs b/src/OrchardCore/OrchardCore.ContentManagement.GraphQL/Queries/ContentItemsFieldType.cs
+index 208301248..3c8105616 100644
+--- a/src/OrchardCore/OrchardCore.ContentManagement.GraphQL/Queries/ContentItemsFieldType.cs
++++ b/src/OrchardCore/OrchardCore.ContentManagement.GraphQL/Queries/ContentItemsFieldType.cs
+@@ -171,7 +171,9 @@ public class ContentItemsFieldType : FieldType
+ 
+         var whereInput = (IFilterInputObjectGraphType)fieldContext.FieldDefinition.Arguments.FirstOrDefault(x => x.Name == "where")?.ResolvedType;
+ 
+-        BuildWhereExpressions(where, expressions, null, whereInput, indexAliases);
++        var normalizers = fieldContext.RequestServices.GetServices<IIndexPropertyValueNormalizer>().ToArray();
++
++        BuildWhereExpressions(where, expressions, null, whereInput, indexAliases, normalizers);
+ 
+         expressions.SearchUsedAlias(predicateQuery);
+ 
+@@ -247,7 +249,7 @@ public class ContentItemsFieldType : FieldType
+         return query;
+     }
+ 
+-    private void BuildWhereExpressions(JsonNode where, Junction expressions, string tableAlias, IFilterInputObjectGraphType filterInputGraphType, HashSet<string> indexAliases)
++    private void BuildWhereExpressions(JsonNode where, Junction expressions, string tableAlias, IFilterInputObjectGraphType filterInputGraphType, HashSet<string> indexAliases, IIndexPropertyValueNormalizer[] normalizers)
+     {
+         if (where is JsonArray array)
+         {
+@@ -255,17 +257,17 @@ public class ContentItemsFieldType : FieldType
+             {
+                 if (child is JsonObject whereObject)
+                 {
+-                    BuildExpressionsInternal(whereObject, expressions, tableAlias, filterInputGraphType, indexAliases);
++                    BuildExpressionsInternal(whereObject, expressions, tableAlias, filterInputGraphType, indexAliases, normalizers);
+                 }
+             }
+         }
+         else if (where is JsonObject whereObject)
+         {
+-            BuildExpressionsInternal(whereObject, expressions, tableAlias, filterInputGraphType, indexAliases);
++            BuildExpressionsInternal(whereObject, expressions, tableAlias, filterInputGraphType, indexAliases, normalizers);
+         }
+     }
+ 
+-    private void BuildExpressionsInternal(JsonObject where, Junction expressions, string tableAlias, IFilterInputObjectGraphType filterInputGraphType, HashSet<string> indexAliases)
++    private void BuildExpressionsInternal(JsonObject where, Junction expressions, string tableAlias, IFilterInputObjectGraphType filterInputGraphType, HashSet<string> indexAliases, IIndexPropertyValueNormalizer[] normalizers)
+     {
+         foreach (var entry in where)
+         {
+@@ -302,7 +304,7 @@ public class ContentItemsFieldType : FieldType
+                             if ((tableAlias == null && field.GetMetadata<bool>("PartCollapsed") && field.Name.Equals(property, StringComparison.OrdinalIgnoreCase)) ||
+                                 (tableAlias != null && partName.ToFieldName().Equals(tableAlias, StringComparison.OrdinalIgnoreCase)))
+                             {
+-                                tableAlias = ResolveIndexAlias(partName, tableAlias, indexAliases);
++                                tableAlias = ResolveIndexAlias(partName, tableAlias, indexAliases, normalizers);
+                                 break;
+                             }
+                         }
+@@ -320,17 +322,17 @@ public class ContentItemsFieldType : FieldType
+                 if (string.Equals(values[0], "or", StringComparison.OrdinalIgnoreCase))
+                 {
+                     expression = Expression.Disjunction();
+-                    BuildWhereExpressions(entry.Value, (Junction)expression, tableAlias, currentField?.ResolvedType as IFilterInputObjectGraphType ?? filterInputGraphType, indexAliases);
++                    BuildWhereExpressions(entry.Value, (Junction)expression, tableAlias, currentField?.ResolvedType as IFilterInputObjectGraphType ?? filterInputGraphType, indexAliases, normalizers);
+                 }
+                 else if (string.Equals(values[0], "and", StringComparison.OrdinalIgnoreCase))
+                 {
+                     expression = Expression.Conjunction();
+-                    BuildWhereExpressions(entry.Value, (Junction)expression, tableAlias, currentField?.ResolvedType as IFilterInputObjectGraphType ?? filterInputGraphType, indexAliases);
++                    BuildWhereExpressions(entry.Value, (Junction)expression, tableAlias, currentField?.ResolvedType as IFilterInputObjectGraphType ?? filterInputGraphType, indexAliases, normalizers);
+                 }
+                 else if (string.Equals(values[0], "not", StringComparison.OrdinalIgnoreCase))
+                 {
+                     expression = Expression.Conjunction();
+-                    BuildWhereExpressions(entry.Value, (Junction)expression, tableAlias, currentField?.ResolvedType as IFilterInputObjectGraphType ?? filterInputGraphType, indexAliases);
++                    BuildWhereExpressions(entry.Value, (Junction)expression, tableAlias, currentField?.ResolvedType as IFilterInputObjectGraphType ?? filterInputGraphType, indexAliases, normalizers);
+                     expression = Expression.Not(expression);
+                 }
+                 else if (entry.Value.HasValues() && entry.Value.GetValueKind() == JsonValueKind.Object)
+@@ -340,22 +342,22 @@ public class ContentItemsFieldType : FieldType
+ 
+                     if (currentPartName != null && tableAlias.Equals(currentPartName.ToFieldName(), StringComparison.OrdinalIgnoreCase))
+                     {
+-                        tableAlias = ResolveIndexAlias(currentPartName, tableAlias, indexAliases);
++                        tableAlias = ResolveIndexAlias(currentPartName, tableAlias, indexAliases, normalizers);
+                     }
+ 
+                     // Loop through the part's properties, passing the name of the part as the table alias.
+                     // This alias can then be used with the table alias to index mappings to join with the correct table.
+-                    BuildWhereExpressions(entry.Value, expressions, tableAlias, currentField?.ResolvedType as IFilterInputObjectGraphType ?? filterInputGraphType, indexAliases);
++                    BuildWhereExpressions(entry.Value, expressions, tableAlias, currentField?.ResolvedType as IFilterInputObjectGraphType ?? filterInputGraphType, indexAliases, normalizers);
+                 }
+                 else
+                 {
+-                    var propertyValue = entry.Value.ToObject<object>();
++                    var propertyValue = Normalize(entry.Value.ToObject<object>(), tableAlias, fieldName, normalizers);
+                     expression = Expression.Equal(property, propertyValue);
+                 }
+             }
+             else
+             {
+-                var value = entry.Value.ToObject<object>();
++                var value = Normalize(entry.Value.ToObject<object>(), tableAlias, fieldName, normalizers);
+ 
+                 expression = values[1] switch
+                 {
+@@ -370,8 +372,8 @@ public class ContentItemsFieldType : FieldType
+                     "not_starts_with" => Expression.Not(Expression.Like(property, (string)value, MatchOptions.StartsWith)),
+                     "ends_with" => Expression.Like(property, (string)value, MatchOptions.EndsWith),
+                     "not_ends_with" => Expression.Not(Expression.Like(property, (string)value, MatchOptions.EndsWith)),
+-                    "in" => Expression.In(property, entry.Value.ToObject<object[]>()),
+-                    "not_in" => Expression.Not(Expression.In(property, entry.Value.ToObject<object[]>())),
++                    "in" => Expression.In(property, entry.Value.ToObject<object[]>().Select(v => Normalize(v, tableAlias, fieldName, normalizers)).ToArray()),
++                    "not_in" => Expression.Not(Expression.In(property, entry.Value.ToObject<object[]>().Select(v => Normalize(v, tableAlias, fieldName, normalizers)).ToArray())),
+                     _ => Expression.Equal(property, value),
+                 };
+             }
+@@ -409,11 +411,29 @@ public class ContentItemsFieldType : FieldType
+         }
+     }
+ 
++    private static object Normalize(object value, string tableAlias, string propertyName, IIndexPropertyValueNormalizer[] normalizers)
++    {
++        if (tableAlias == null || value == null)
++        {
++            return value;
++        }
++
++        foreach (var normalizer in normalizers)
++        {
++            if (string.Equals(normalizer.IndexAlias, tableAlias, StringComparison.OrdinalIgnoreCase) && normalizer.CanNormalize(propertyName))
++            {
++                return normalizer.Normalize(value);
++            }
++        }
++
++        return value;
++    }
++
+     /// <summary>
+     /// Resolves the index alias for a given name from the set of known aliases,
+     /// returning <paramref name="fallback"/> if no match is found.
+     /// </summary>
+-    private static string ResolveIndexAlias(string name, string fallback, HashSet<string> indexAliases)
++    private static string ResolveIndexAlias(string name, string fallback, HashSet<string> indexAliases, IIndexPropertyValueNormalizer[] normalizers)
+         => indexAliases.TryGetValue(name, out var alias) ? alias : fallback;
+ 
+     private static IQuery<ContentItem, ContentItemIndex> OrderBy(IQuery<ContentItem, ContentItemIndex> query,
+diff --git a/src/OrchardCore/OrchardCore.ContentManagement.GraphQL/Queries/IIndexPropertyValueNormalizer.cs b/src/OrchardCore/OrchardCore.ContentManagement.GraphQL/Queries/IIndexPropertyValueNormalizer.cs
+new file mode 100644
+index 000000000..1e95a5d77
+--- /dev/null
++++ b/src/OrchardCore/OrchardCore.ContentManagement.GraphQL/Queries/IIndexPropertyValueNormalizer.cs
+@@ -0,0 +1,23 @@
++namespace OrchardCore.ContentManagement.GraphQL.Queries;
++
++/// <summary>
++/// Normalizes the values a GraphQL <c>where</c> argument compares with an index property, so that
++/// the comparison matches how the property is stored (for instance lower-cased culture codes).
++/// </summary>
++public interface IIndexPropertyValueNormalizer
++{
++    /// <summary>
++    /// The index alias the property belongs to, as registered by an <see cref="IIndexAliasProvider"/>.
++    /// </summary>
++    string IndexAlias { get; }
++
++    /// <summary>
++    /// Returns <see langword="true"/> when <paramref name="propertyName"/> is normalized by this instance.
++    /// </summary>
++    bool CanNormalize(string propertyName);
++
++    /// <summary>
++    /// Normalizes a single value.
++    /// </summary>
++    object Normalize(object value);
++}

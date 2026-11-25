@@ -1,0 +1,5 @@
+config.env
+upstream/
+workspaces/
+results/
+*.log

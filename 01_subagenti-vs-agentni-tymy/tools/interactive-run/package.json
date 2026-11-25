@@ -1,0 +1,9 @@
+{
+  "name": "bench-interactive-run",
+  "private": true,
+  "type": "module",
+  "description": "Runs Claude Code in a real terminal (PTY) so agent teams spawn real teammates.",
+  "dependencies": {
+    "node-pty": "1.1.0"
+  }
+}

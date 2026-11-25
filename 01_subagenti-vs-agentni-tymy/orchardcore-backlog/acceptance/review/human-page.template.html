@@ -1,0 +1,268 @@
+<title>Slepá kontrola V3</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column review tool; sticky bar with solution chips, sections fold, score form at the end. */
+:root {
+  --bg: #f6f7f6; --surface: #ffffff; --fg: #1d2421; --muted: #5f6b66; --line: #dde3e0;
+  --accent: #2f6f68; --accent-fg: #ffffff; --accent-soft: #e2efec;
+  --add-bg: #e3f4e6; --add-fg: #1f5a2b; --del-bg: #fbe6e4; --del-fg: #8a2a20; --hunk: #4d5fa3;
+  --ok: #2c7a3f; --warn: #a15c0b;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121614; --surface: #1a201d; --fg: #e3e9e6; --muted: #9aa7a1; --line: #2c3532;
+  --accent: #6fbdb2; --accent-fg: #0d1513; --accent-soft: #1f3330;
+  --add-bg: #17301e; --add-fg: #9fdcaa; --del-bg: #3a1d1a; --del-fg: #f2aaa1; --hunk: #9fb0f0;
+  --ok: #7fd197; --warn: #e8b06a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121614; --surface: #1a201d; --fg: #e3e9e6; --muted: #9aa7a1; --line: #2c3532;
+  --accent: #6fbdb2; --accent-fg: #0d1513; --accent-soft: #1f3330;
+  --add-bg: #17301e; --add-fg: #9fdcaa; --del-bg: #3a1d1a; --del-fg: #f2aaa1; --hunk: #9fb0f0;
+  --ok: #7fd197; --warn: #e8b06a; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--sans); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.wrap { max-width: 860px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+header.bar .wrap { padding-block: 10px; display: grid; gap: 8px; }
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 17px; font-weight: 600; margin: 0; }
+.progress { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.chip { flex: none; font: 500 13px var(--mono); padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; display: flex; gap: 6px; align-items: center; }
+.chip[aria-current="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.chip .dot.done { background: var(--ok); }
+.chip[aria-current="true"] .dot.done { background: var(--accent-fg); }
+main .wrap { padding-block: 16px 48px; display: grid; gap: 12px; }
+.intro { color: var(--muted); font-size: 14px; margin: 0; }
+.head { display: grid; gap: 2px; }
+.eyebrow { font: 500 12px var(--mono); letter-spacing: .04em; color: var(--accent); text-transform: uppercase; }
+h2 { font-size: 21px; margin: 0; text-wrap: balance; line-height: 1.3; }
+details.sec { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+details.sec > summary { cursor: pointer; padding: 12px 14px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 10px; }
+details.sec > summary::-webkit-details-marker { display: none; }
+details.sec > summary::after { content: "+"; color: var(--muted); font-weight: 400; }
+details.sec[open] > summary::after { content: "−"; }
+details.sec > summary .meta { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: auto; }
+.body { padding: 0 14px 14px; min-width: 0; }
+.md { overflow-wrap: anywhere; }
+.md h4 { font-size: 15px; margin: 14px 0 4px; }
+.md p { margin: 6px 0; }
+.md ul { margin: 6px 0; padding-left: 20px; }
+.md code, .mono { font-family: var(--mono); font-size: 13px; }
+.md code { background: var(--accent-soft); padding: 1px 4px; border-radius: 4px; }
+.md table { border-collapse: collapse; font-size: 13px; }
+.md td, .md th { border: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+.tablebox { overflow-x: auto; }
+.commit { font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+.commit b { color: var(--fg); font-weight: 600; }
+details.file { border: 1px solid var(--line); border-radius: 8px; margin-top: 6px; min-width: 0; }
+details.file > summary { cursor: pointer; padding: 8px 10px; font: 13px var(--mono); overflow-wrap: anywhere; display: flex; gap: 8px; justify-content: space-between; }
+.stat { flex: none; font-variant-numeric: tabular-nums; }
+.stat .a { color: var(--add-fg); } .stat .d { color: var(--del-fg); }
+pre.diff { margin: 0; overflow-x: auto; font: 12px/1.5 var(--mono); border-top: 1px solid var(--line); padding: 6px 0; }
+body.wrapdiff pre.diff { white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.diff span { display: block; padding: 0 10px; min-width: max-content; }
+body.wrapdiff pre.diff span { min-width: 0; }
+pre.diff .add { background: var(--add-bg); color: var(--add-fg); }
+pre.diff .del { background: var(--del-bg); color: var(--del-fg); }
+pre.diff .hunk { color: var(--hunk); }
+pre.diff .meta { color: var(--muted); }
+.toolrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--muted); }
+.toolrow label { display: flex; gap: 6px; align-items: center; }
+.auto li.pass::marker { color: var(--ok); }
+form.score { background: var(--surface); border: 2px solid var(--accent); border-radius: 12px; padding: 14px; display: grid; gap: 14px; }
+form.score h3 { margin: 0; font-size: 17px; }
+.crit { display: grid; gap: 6px; }
+.crit .lab { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 14px; }
+.crit .lab small { font-weight: 400; color: var(--muted); }
+.crit .hint { font-size: 13px; color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg button { font: 500 14px var(--mono); min-width: 48px; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; font-variant-numeric: tabular-nums; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+textarea { width: 100%; min-height: 72px; font: 14px var(--sans); padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+.actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.btn { font: 600 15px var(--sans); padding: 11px 18px; border-radius: 10px; border: 0; background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.btn:disabled { opacity: .5; cursor: default; }
+.status { font-size: 13px; color: var(--muted); }
+.status.ok { color: var(--ok); } .status.warn { color: var(--warn); }
+.total { font: 600 15px var(--mono); font-variant-numeric: tabular-nums; }
+button:focus-visible, summary:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#copybox { width: 100%; min-height: 120px; font: 12px var(--mono); }
+</style>
+
+<header class="bar"><div class="wrap">
+  <div class="top"><h1>Slepá kontrola V3</h1><span class="progress" id="progress"></span></div>
+  <nav class="chips" id="chips" aria-label="Řešení"></nav>
+</div></header>
+<main><div class="wrap" id="main">
+  <p class="intro">Načítám řešení…</p>
+</div></main>
+
+<script id="data" type="application/json">/*DATA*/null</script>
+<script>
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const CRITERIA = [
+  { key: 'triage', label: 'Triage', max: 2, hint: 'Stav v BACKLOG.md odpovídá skutečnému stavu a je podložený kódem.' },
+  { key: 'correctness', label: 'Funkčnost', max: 3, hint: '3 × podíl scénářů, které projdou. Automatické výsledky jsou dané, zbytek posuď z kódu.' },
+  { key: 'completeness', label: 'Úplnost a rozsah', max: 1, hint: 'Pokrývá zadání a komentáře správců, nic nesouvisejícího.' },
+  { key: 'design', label: 'Návrh a konvence', max: 2, hint: 'Sedí na vzory OrchardCore, zpětně kompatibilní, bezpečné (viz poznámka k issue).' },
+  { key: 'tests', label: 'Testy', max: 1, hint: 'Smysluplné testy, které by bez změny selhaly.' },
+  { key: 'documentation', label: 'Dokumentace', max: 1, hint: 'Release notes a BACKLOG.md popisují změnu přesně.' },
+];
+const scores = {};      // id -> saved score
+const drafts = {};      // id -> unsaved values
+let db = null, current = 0;
+const idOf = (it) => `${it.issue}-${it.code}`;
+
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function inline(s) {
+  return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function md(text) {
+  const out = []; let list = null, table = null, code = null;
+  const flush = () => { if (list) { out.push('<ul>' + list.join('') + '</ul>'); list = null; } if (table) { out.push('<div class="tablebox"><table>' + table.join('') + '</table></div>'); table = null; } };
+  for (const line of (text || '').split('\n')) {
+    if (code !== null) { if (/^```/.test(line)) { out.push('<pre class="diff"><span>' + code.map(esc).join('</span><span>') + '</span></pre>'); code = null; } else code.push(line); continue; }
+    if (/^```/.test(line)) { flush(); code = []; continue; }
+    const h = line.match(/^#{2,6}\s+(.*)/);
+    if (h) { flush(); out.push('<h4>' + inline(h[1]) + '</h4>'); continue; }
+    const li = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*)/);
+    if (li) { if (table) flush(); (list ??= []).push('<li>' + inline(li[1]) + '</li>'); continue; }
+    if (/^\|/.test(line)) { if (list) flush(); if (/^\|[\s|:-]+\|$/.test(line)) continue; (table ??= []).push('<tr>' + line.replace(/^\||\|$/g, '').split('|').map((c) => '<td>' + inline(c.trim()) + '</td>').join('') + '</tr>'); continue; }
+    if (!line.trim()) { flush(); continue; }
+    if (list && /^\s{2,}/.test(line)) { list[list.length - 1] = list[list.length - 1].replace('</li>', ' ' + inline(line.trim()) + '</li>'); continue; }
+    flush(); out.push('<p>' + inline(line) + '</p>');
+  }
+  flush();
+  return '<div class="md">' + out.join('') + '</div>';
+}
+function diffHtml(d) {
+  return '<pre class="diff">' + d.split('\n').map((l) => {
+    const c = l.startsWith('+++') || l.startsWith('---') || l.startsWith('diff ') || l.startsWith('index ') || l.startsWith('new file') || l.startsWith('deleted file') ? 'meta'
+      : l.startsWith('@@') ? 'hunk' : l.startsWith('+') ? 'add' : l.startsWith('-') ? 'del' : '';
+    return `<span class="${c}">${esc(l) || ' '}</span>`;
+  }).join('') + '</pre>';
+}
+const sec = (title, inner, open = false, meta = '') =>
+  `<details class="sec"${open ? ' open' : ''}><summary>${title}${meta ? `<span class="meta">${meta}</span>` : ''}</summary><div class="body">${inner}</div></details>`;
+
+function noteFor(issue) {
+  const m = DATA.notes.split('\n').find((l) => l.includes(`#${issue}:`));
+  return m ? md(m.replace(/^-\s*/, '')) : '';
+}
+
+function render() {
+  const it = DATA.items[current], id = idOf(it);
+  const done = DATA.items.filter((x) => scores[idOf(x)]).length;
+  document.getElementById('progress').textContent = `${done} z ${DATA.items.length} ohodnoceno`;
+  document.getElementById('chips').innerHTML = DATA.items.map((x, i) =>
+    `<button class="chip" aria-current="${i === current}" data-i="${i}"><span class="dot${scores[idOf(x)] ? ' done' : ''}"></span>#${x.issue} · ${x.code}</button>`).join('');
+
+  let commits = '';
+  for (const subject of it.commits) {
+    const files = it.files.filter((f) => f.subject === subject);
+    commits += `<div class="commit"><b>${esc(subject)}</b> · ${files.length} souborů</div>` + files.map((f) => {
+      const lines = f.diff.split('\n');
+      const a = lines.filter((l) => l.startsWith('+') && !l.startsWith('+++')).length;
+      const d = lines.filter((l) => l.startsWith('-') && !l.startsWith('---')).length;
+      return `<details class="file"><summary><span>${esc(f.path)}</span><span class="stat"><span class="a">+${a}</span> <span class="d">−${d}</span></span></summary>${diffHtml(f.diff)}</details>`;
+    }).join('');
+  }
+  const auto = it.automated.split('\n').filter((l) => l.trim()).map((l) => `<li class="${/Pass|0 regressions/.test(l) ? 'pass' : ''}">${inline(l.replace(/^-\s*/, ''))}</li>`).join('');
+  const v = drafts[id] ?? scores[id] ?? {};
+
+  document.getElementById('main').innerHTML = `
+    <div class="head"><span class="eyebrow">Issue #${it.issue} · řešení ${it.code}</span><h2>${esc(it.title)}</h2></div>
+    ${sec('Jak hodnotit', md('Ohodnoť jen toto řešení, nesrovnávej ho s ostatními. Režim ani skóre modelu nejsou vidět. Body se ukládají do sdílených dat této stránky.') + '<h4>Poznámka k issue z rubriky</h4>' + noteFor(it.issue))}
+    ${sec('Zadání issue a komentáře', md(it.issueText))}
+    ${sec('Skutečný stav (ground truth)', md(it.truth))}
+    ${sec('Akceptační scénáře', md(it.scenarios))}
+    ${sec('Automatické výsledky', `<ul class="md auto">${auto}</ul>`, true)}
+    ${sec('BACKLOG.md', md(it.backlog), true)}
+    ${sec('Změny v kódu', `<div class="toolrow"><label><input type="checkbox" id="wrapdiff"${document.body.classList.contains('wrapdiff') ? ' checked' : ''}> Zalamovat řádky</label></div>${commits || '<p>Žádný commit pro toto issue.</p>'}`, true, `${it.files.length} souborů`)}
+    <form class="score" id="form">
+      <h3>Tvoje hodnocení</h3>
+      ${CRITERIA.map((c) => `<div class="crit"><div class="lab">${c.label}<small>0–${c.max}</small></div><div class="hint">${c.hint}</div>
+        <div class="seg" role="group" aria-label="${c.label}">${Array.from({ length: c.max * 2 + 1 }, (_, k) => k / 2).map((n) =>
+          `<button type="button" data-k="${c.key}" data-v="${n}" aria-pressed="${v[c.key] === n}">${String(n).replace('.', ',')}</button>`).join('')}</div></div>`).join('')}
+      <div class="crit"><div class="lab">Poznámka<small>nepovinné</small></div><textarea id="note-${id}" placeholder="Co rozhodlo, případně nalezená chyba">${esc(v.note ?? '')}</textarea></div>
+      <div class="actions"><button class="btn" type="submit" id="save">Uložit hodnocení</button>
+        <span class="total" id="total"></span><span class="status" id="status"></span></div>
+    </form>
+    ${sec('Kopie všech bodů (když ukládání nefunguje)', '<p class="md">Text níže obsahuje všechna hodnocení z této stránky. Zkopíruj ho a pošli mi ho do chatu.</p><textarea id="copybox" readonly></textarea><div class="actions"><button class="btn ghost" type="button" id="copy">Zkopírovat</button><span class="status" id="copystatus"></span></div>')}
+  `;
+  updateTotal();
+  if (!db) setStatus('Ukládání se připravuje…');
+  else if (scores[id]) setStatus('Uloženo', 'ok');
+}
+
+function updateTotal() {
+  const it = DATA.items[current], v = drafts[idOf(it)] ?? scores[idOf(it)] ?? {};
+  const filled = CRITERIA.filter((c) => typeof v[c.key] === 'number');
+  const sum = filled.reduce((s, c) => s + v[c.key], 0);
+  document.getElementById('total').textContent = `${String(sum).replace('.', ',')} / 10${filled.length < CRITERIA.length ? ` · chybí ${CRITERIA.length - filled.length}` : ''}`;
+  document.getElementById('save').disabled = filled.length < CRITERIA.length;
+  const box = document.getElementById('copybox');
+  if (box) box.value = JSON.stringify(Object.fromEntries(DATA.items.map((x) => [idOf(x), scores[idOf(x)] ?? drafts[idOf(x)] ?? null])), null, 1);
+}
+function setStatus(text, kind = '') { const s = document.getElementById('status'); if (s) { s.textContent = text; s.className = 'status ' + kind; } }
+
+document.addEventListener('click', async (e) => {
+  const chip = e.target.closest('.chip');
+  if (chip) { current = Number(chip.dataset.i); location.hash = 's' + (current + 1); render(); window.scrollTo(0, 0); return; }
+  const seg = e.target.closest('.seg button');
+  if (seg) {
+    const id = idOf(DATA.items[current]);
+    drafts[id] = { ...(drafts[id] ?? scores[id] ?? {}), [seg.dataset.k]: Number(seg.dataset.v) };
+    seg.parentElement.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b === seg));
+    setStatus(scores[id] ? 'Změněno, neuloženo' : '', 'warn'); updateTotal(); return;
+  }
+  if (e.target.id === 'copy') {
+    const box = document.getElementById('copybox');
+    try { await navigator.clipboard.writeText(box.value); document.getElementById('copystatus').textContent = 'Zkopírováno'; }
+    catch { box.select(); document.getElementById('copystatus').textContent = 'Text je označený, zkopíruj ho ručně'; }
+  }
+});
+document.addEventListener('change', (e) => { if (e.target.id === 'wrapdiff') document.body.classList.toggle('wrapdiff', e.target.checked); });
+document.addEventListener('input', (e) => {
+  if (e.target.id?.startsWith('note-')) { const id = e.target.id.slice(5); drafts[id] = { ...(drafts[id] ?? scores[id] ?? {}), note: e.target.value }; setStatus(scores[id] ? 'Změněno, neuloženo' : '', 'warn'); updateTotal(); }
+});
+document.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const it = DATA.items[current], id = idOf(it);
+  const v = { ...(scores[id] ?? {}), ...(drafts[id] ?? {}), issue: it.issue, code: it.code, savedAt: new Date().toISOString() };
+  if (!db) { setStatus('Ukládání není dostupné. Použij kopii všech bodů níže.', 'warn'); updateTotal(); return; }
+  const btn = document.getElementById('save'); btn.disabled = true; setStatus('Ukládám…');
+  try {
+    await db.doc('scores/' + id).set(v);
+    scores[id] = v; delete drafts[id];
+    const next = DATA.items.findIndex((x) => !scores[idOf(x)]);
+    render(); setStatus(next >= 0 ? 'Uloženo. Další řešení je v liště nahoře.' : 'Uloženo. Všech šest je hotových, napiš mi do chatu.', 'ok');
+  } catch (err) {
+    btn.disabled = false;
+    setStatus(`Uložení selhalo (${err?.code ?? 'chyba'}). Zkus to znovu, nebo použij kopii níže.`, 'warn');
+  }
+});
+
+const fromHash = Number((location.hash.match(/^#s(\d)$/) || [])[1]);
+if (fromHash >= 1 && fromHash <= DATA.items.length) current = fromHash - 1;
+render();
+
+(async () => {
+  try { db = await window.claude?.use?.('db'); } catch { db = null; }
+  if (!db) { setStatus('Ukládání není dostupné. Použij kopii všech bodů dole.', 'warn'); return; }
+  try {
+    const snap = await db.collection('scores').get();
+    for (const d of snap.docs) scores[d.id] = d.data();
+  } catch { /* empty store */ }
+  render();
+})();
+</script>
