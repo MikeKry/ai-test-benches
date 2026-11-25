@@ -1,6 +1,6 @@
-# AI test benches
+﻿# AI test benches
 
-Benchmarks behind the articles on [mkuzela.cz/blog](https://mkuzela.cz/cs/blog/). Each folder is one
+Benchmarks behind the articles on [mkuzela.cz/blog](https://mkuzela.cz/en/blog/). Each folder is one
 benchmark set with its own README; finished runs are not included.
 
 | Folder | What it measures |

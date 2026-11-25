@@ -3,7 +3,8 @@
 Three benchmarks that give the same task to the ways of working in Claude Code and compare quality, time and
 token cost: one agent, subagents, a team of named agents under `claude -p`, and a real interactive agent team.
 
-Write-up (Czech): [Agenti, subagenti, agentní týmy: dává to smysl na běžném stroji?](https://mkuzela.cz/cs/blog/subagenti-vs-agentni-tymy/)
+Write-up: [Agents, subagents, agent teams: do they pay off on an ordinary machine?](https://mkuzela.cz/en/blog/subagenti-vs-agentni-tymy/)
+(Czech: [Agenti, subagenti, agentní týmy: dává to smysl na běžném stroji?](https://mkuzela.cz/cs/blog/subagenti-vs-agentni-tymy/))
 
 | Benchmark | Task | Size | Quality is scored by |
 |---|---|---|---|
